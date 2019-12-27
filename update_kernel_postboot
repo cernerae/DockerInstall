@@ -1,0 +1,58 @@
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]
+  then
+    echo "WARNING: Please run as root or sudo user! Exiting..."
+    exit 1
+fi
+
+echo "Initiating Linux Kernal Upgrade Post-Reboot Operations..."
+
+GRUB_FILE="/etc/default/grub"
+
+get_os_info () {
+    info="$(cat /etc/redhat-release)";
+    echo; echo "-- OS Description --";
+    echo "${info}";
+    echo "--------------------"; echo;
+}
+
+get_kernel_version () {
+    version="$(uname -r)"
+    echo; echo "Kernel Version: ${version}"; echo;
+}
+
+
+read_grub_file () {
+    content="$(cat ${GRUB_FILE})";
+    echo; echo "-- Contents of ${GRUB_FILE} --";
+    echo "${content}"; echo;
+}
+
+turn_off_grub_default () {
+    echo; echo "-- Setting GRUB_DEFAULT=0 ...";
+    sed -i -e "s@GRUB_DEFAULT=saved@GRUB_DEFAULT=0@g" "${GRUB_FILE}"
+    echo "Done."; echo;
+}
+
+turn_on_grub_default () {
+    echo; echo "-- Setting GRUB_DEFAULT=saved ...";
+    sed -i -e "s@GRUB_DEFAULT=0@GRUB_DEFAULT=saved@g" "${GRUB_FILE}"
+    echo "Done."; echo;
+}
+
+create_config_file () {
+    echo; echo "-- Creating new configuration based on currently running system ..."
+    grub2-mkconfig -o /boot/grub2/grub.cfg
+    echo "Done."; echo;
+}
+
+# Run
+read_grub_file
+turn_off_grub_default
+read_grub_file
+create_config_file
+get_os_info
+get_kernel_version
+
+echo "Linux Kernal Upgrade Post-Reboot Operations Complete."

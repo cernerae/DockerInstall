@@ -1,0 +1,199 @@
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]
+  then
+    echo "WARNING: Please run as root or sudo user! Exiting..."
+    exit 1
+fi
+
+display_usage() {
+    echo
+    echo "Usage: bash $0 -a 0f4353db...763 -d true"
+    echo
+}
+
+echo "Getting command line arguments..."
+while getopts a:d: option
+do
+        case "$option" in
+        a) DATADOG_API_KEY=$OPTARG;;
+        d) DATADOG_ONLY=$OPTARG;;
+        *) display_usage;;
+        esac
+done
+echo "Done."
+
+if test -z "$DATADOG_API_KEY"
+    then
+        echo
+        echo "WARNING: DATADOG_API_KEY is recommended (use -a)"
+        echo "INFO: Virtual Machine will NOT be tracked on DataDog. Setting DATADOG_API_KEY=false ..."
+        DATADOG_API_KEY=false
+fi
+
+if test -z "$DATADOG_ONLY"
+    then
+        echo
+        echo "INFO: DATADOG_ONLY not provided (use -d)"
+        DATADOG_ONLY=false
+fi
+
+
+echo "Initiating Docker Installation..."
+
+install_yum_utils () {
+    echo; echo "-- Installing yum-utils with device-mapper-persistent-data and lvm2 ...";
+    yum install -y yum-utils device-mapper-persistent-data lvm2 -y
+    echo "-- Done."; echo;
+}
+
+add_docker_repo () {
+    echo; echo "-- Adding Docker repo ...";
+    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    echo "-- Done."; echo;
+}
+
+install_dockerce () {
+    echo; echo "-- Installing DockerCE ...";
+    yum install docker-ce docker-ce-cli containerd.io -y
+    echo "-- Done."; echo;
+}
+
+install_docker_compose () {
+    echo; echo "-- Installing docker-compose ...";
+    curl -L "https://github.com/docker/compose/releases/download/1.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    echo "Docker-Compose version: $(docker-compose --version)"
+    echo "-- Done."; echo;
+}
+
+start_docker () {
+    echo; echo "-- Starting Docker ...";
+    systemctl start docker
+    echo "-- Done."; echo;
+}
+
+test_docker () {
+    echo; echo "-- Testing Docker ...";
+    docker run hello-world
+    echo "-- Done."; echo;
+}
+
+setup_users () {
+    echo; echo "-- Adding & Configuring Users ...";
+    echo "---- Creating group 'docker' ..."
+    groupadd docker
+    echo "---- Creating user 'deckysystem' ..."
+    useradd deckysystem
+    echo "---- Creating user 'alenza' ..."
+    useradd alenza
+    echo "---- Adding user 'deckysystem' to 'docker' group ..."
+    usermod -aG docker deckysystem
+    echo "---- Adding user 'alenza' to 'docker' group ..."
+    usermod -aG docker alenza
+    echo "-- Done."; echo;
+}
+
+read_docker_service_file () {
+    filename="/etc/systemd/system/docker.service.d/override.conf"
+    if [ ! -f ${filename} ]; then
+        echo "File '${filename}' not found! Creating..."
+        touch ${filename}
+    fi
+    echo "-- Reading ${filename} ..."
+    cat ${filename}
+    echo "-- Done."; echo;
+}
+
+create_systemd_dropin_dir () {
+    echo "-- Creating a systemd drop-in directory for the docker service"
+    mkdir -p /etc/systemd/system/docker.service.d
+    echo "-- Done."; echo;
+}
+
+override_docker_service_file () {
+    filename="/etc/systemd/system/docker.service.d/override.conf"
+    echo "-- Overriding ${filename} ..."
+    echo '[Service]' > ${filename}  # single > to wipe file
+    echo 'ExecStart=' >> ${filename}  # double >> to append
+    echo 'ExecStart=/usr/bin/dockerd -H fd:// -H tcp://127.0.0.1:2375' >> ${filename}
+    echo "-- Done."; echo;
+}
+
+reload_systemctl () {
+    echo; echo "-- Reloading systemctl configuration ...";
+    systemctl daemon-reload
+    echo "-- Done."; echo;
+} 
+
+enable_docker_on_reboot () {
+    echo; echo "-- Enabling Docker to start on reboot ...";
+    systemctl enable docker
+    echo "-- Done."; echo;
+}
+
+restart_docker () {
+    echo; echo "-- Restarting Docker Service ...";
+    systemctl restart docker
+    echo "-- Done."; echo;
+} 
+
+check_docker_override () {
+    echo; echo "-- Checking that changes to docker.service were honored ...";
+    sudo netstat -lntp | grep dockerd
+    echo "-- Done."; echo;
+}
+
+install_datadog () {
+    echo; echo "-- Installing DataDog ...";
+    DD_API_KEY=${DATADOG_API_KEY} bash -c \
+    "$(curl -L https://raw.githubusercontent.com/DataDog/datadog-agent/master/cmd/agent/install_script.sh)"
+    echo "-- Done."; echo;
+}
+
+run_datadog_container () {
+    echo; echo "-- Running DataDog container ...";
+    docker run -d --restart=on-failure:3 --name dd-agent \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v /proc/:/host/proc/:ro -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro \
+    -e DD_API_KEY=${DATADOG_API_KEY} datadog/agent:latest
+    echo "-- Done."; echo;
+}
+
+# Run
+if [ "$DATADOG_ONLY" = false ] ;
+then
+
+    # Uninstall any existing Docker packages
+    echo "Removing all Docker packages from yum in 5 seconds..."
+    sleep 5
+    yum remove docker* -y
+
+    install_yum_utils
+    add_docker_repo
+    install_dockerce
+    start_docker
+    test_docker
+    setup_users
+    read_docker_service_file
+    create_systemd_dropin_dir
+    override_docker_service_file
+    read_docker_service_file
+    enable_docker_on_reboot
+    install_docker_compose
+    reload_systemctl
+    restart_docker
+    check_docker_override
+else
+    echo "WARNING: Skipping Docker installation..."
+fi
+
+if [ "$DATADOG_API_KEY" = false ] ;
+then
+    echo "WARNING: Skipping DataDog installation..."
+else
+    install_datadog
+    run_datadog_container
+fi
+
+echo "Docker Installation Complete. Please exit shell to apply user/group changes."

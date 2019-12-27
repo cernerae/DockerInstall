@@ -1,0 +1,66 @@
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]
+  then
+    echo "WARNING: Please run as root or sudo user! Exiting..."
+    exit 1
+fi
+
+echo "WARNING: Script will reboot upon completetion!"
+sleep 5
+echo "Initiating Linux Kernal Upgrade Pre-Reboot Operations..."
+
+get_os_info () {
+    info="$(lsb_release -a)";
+    echo; echo "-- OS Description --";
+    echo "${info}";
+    echo "--------------------"; echo;
+}
+
+get_kernel_version () {
+    version="$(uname -r)"
+    echo; echo "Kernel Version: ${version}"; echo;
+}
+
+upgrade_yum () {
+    echo; echo "-- Updating and Upgrading Yum ..."; echo;
+    yum -y update && yum -y upgrade
+    echo; echo "-- Done."; echo;
+}
+
+install_elrepo () {
+    echo; echo "-- Installing ElRepo ..."; echo;
+    rpm --import https://www.elrepo.org/RPM-GPG-KEY-elrepo.org
+    rpm -Uvh http://www.elrepo.org/elrepo-release-7.0-3.el7.elrepo.noarch.rpm
+    echo; echo "-- Done."; echo;
+}
+
+enable_elrepo () {
+    echo; echo "-- Enabling ElRepo ..."; echo;
+    yum --disablerepo="*" --enablerepo="elrepo-kernel" list available
+    yum --enablerepo=elrepo-kernel install kernel-ml -y
+    echo; echo "-- Done."; echo;
+}
+
+reboot_server () {
+    echo; echo "-- Rebooting Server after 10 seconds ..."; echo;
+    secs=$((1 * 10))
+    while [ $secs -gt 0 ]; do
+        echo -ne "Rebooting in: $secs\033[0K\r"
+        sleep 1
+        : $((secs--))
+    done
+    echo "-- Rebooting ..."
+    reboot
+}
+
+
+# Run
+get_os_info
+get_kernel_version
+upgrade_yum
+install_elrepo
+enable_elrepo
+reboot_server
+
+echo "Linux Kernal Upgrade Pre-Reboot Operations Complete."
