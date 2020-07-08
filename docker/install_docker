@@ -22,7 +22,7 @@ add_docker_repo () {
 
 install_dockerce () {
     echo; echo "-- Installing DockerCE ...";
-    yum install docker-ce docker-ce-cli containerd.io -y
+    yum install docker-ce docker-ce-cli --nobest -y
     echo "-- Done."; echo;
 }
 
@@ -50,14 +50,10 @@ setup_users () {
     echo; echo "-- Adding & Configuring Users ...";
     echo "---- Creating group 'docker' ..."
     groupadd docker
-    echo "---- Creating user 'deckysystem' ..."
-    useradd deckysystem
-    echo "---- Creating user 'alenza' ..."
-    useradd alenza
-    echo "---- Adding user 'deckysystem' to 'docker' group ..."
-    usermod -aG docker deckysystem
-    echo "---- Adding user 'alenza' to 'docker' group ..."
-    usermod -aG docker alenza
+    echo "---- Creating user 'docker-user' ..."
+    useradd docker-user
+    echo "---- Adding user 'docker-user' to 'docker' group ..."
+    usermod -aG docker docker-user
     echo "-- Done."; echo;
 }
 
